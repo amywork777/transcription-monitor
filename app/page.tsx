@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, Suspense } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -38,9 +38,10 @@ interface Conversation {
   summary?: string
 }
 
-export default function TranscriptionMonitor() {
+function TranscriptionMonitorContent() {
   const [isMonitoring, setIsMonitoring] = useState(false)
   const [hasRecentAudioBytes, setHasRecentAudioBytes] = useState(false)
+  const [isAudioBytesChanging, setIsAudioBytesChanging] = useState(false)
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [transcriptions, setTranscriptions] = useState<TranscriptSegment[]>([])
@@ -163,6 +164,8 @@ export default function TranscriptionMonitor() {
           // First time - establish baseline without triggering recording
           console.log("[v0] Setting initial audio bytes baseline:", latestRequest.uuid)
           setLastAudioBytesRequestId(latestRequest.uuid)
+          setIsAudioBytesChanging(false)
+          setHasRecentAudioBytes(false)
           addDebugInfo(`📍 Set audio bytes baseline: ${latestRequest.uuid.slice(0, 8)}...`)
           return
         }
@@ -172,8 +175,9 @@ export default function TranscriptionMonitor() {
           console.log("[v0] NEW audio bytes detected - RECORDING STARTED:", latestRequest.uuid)
           addDebugInfo(`🔴 RECORDING: NEW audio bytes ${latestRequest.uuid.slice(0, 8)}...`)
 
-          setLastAudioBytesRequestId(latestRequest.uuid)
+          setLastAudioBytesRequestId(latestRequest.uuid) // Update baseline immediately
           setHasRecentAudioBytes(true) // Show "Recording in Progress"
+          setIsAudioBytesChanging(true)
 
           // Clear any existing timeout
           if (audioTimeoutRef.current) {
@@ -184,16 +188,15 @@ export default function TranscriptionMonitor() {
           audioTimeoutRef.current = setTimeout(() => {
             console.log("[v0] No new audio bytes for 5 seconds - RECORDING STOPPED")
             setHasRecentAudioBytes(false)
+            setIsAudioBytesChanging(false)
             addDebugInfo("⏹️ Recording stopped - no new audio for 5 seconds")
           }, 5000)
-        } else {
-          // Same UUID - no new audio bytes, but don't reset baseline
-          console.log("[v0] Same audio bytes UUID - no new activity:", latestRequest.uuid)
         }
       } else {
         // No audio bytes requests found
         if (hasRecentAudioBytes) {
           setHasRecentAudioBytes(false)
+          setIsAudioBytesChanging(false)
           addDebugInfo("⏹️ No audio bytes requests - recording stopped")
         }
         console.log("[v0] No audio bytes requests found")
@@ -378,6 +381,8 @@ export default function TranscriptionMonitor() {
     addDebugInfo("▶️ Started monitoring")
 
     setLastAudioBytesRequestId(null)
+    setHasRecentAudioBytes(false)
+    setIsAudioBytesChanging(false)
     console.log("[v0] Starting monitoring - will establish baseline on first check")
     addDebugInfo("📍 Starting fresh monitoring - will establish baseline on first check")
 
@@ -458,6 +463,17 @@ export default function TranscriptionMonitor() {
             <Badge variant="outline" className="text-green-600 border-green-300">
               ALWAYS MONITORING
             </Badge>
+            <div className="flex items-center gap-2">
+              {isAudioBytesChanging ? (
+                <Badge variant="default" className="bg-red-500 text-white animate-pulse">
+                  🔴 Recording in progress
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-gray-500 border-gray-300">
+                  ⚫ Not recording...
+                </Badge>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setSettingsOpen(!settingsOpen)}>
@@ -742,5 +758,15 @@ export default function TranscriptionMonitor() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function TranscriptionMonitor() {
+  return (
+    <Suspense
+      fallback={<div className="min-h-screen bg-background p-4 flex items-center justify-center">Loading...</div>}
+    >
+      <TranscriptionMonitorContent />
+    </Suspense>
   )
 }
